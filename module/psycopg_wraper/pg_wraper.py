@@ -1,9 +1,4 @@
 import psycopg2 
-from datetime import datetime
-import cx_Oracle as ora
-import io
-import sys
-
 
 """
 coder: muslih
