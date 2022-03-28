@@ -8,6 +8,7 @@ pgd = pg2_wrap({
     'port':'5432'})
 
 command="select * from information_schema.tables"
+
 data_normal,status,header = pgd.sel(command,header=1)
 print('normal',data_normal)
 
