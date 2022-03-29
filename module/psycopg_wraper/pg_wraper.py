@@ -1,11 +1,8 @@
 import psycopg2
 
-
-
 """
 coder: muslih
 """
-
 
 class pg2_wrap:
 
@@ -36,6 +33,19 @@ class pg2_wrap:
         self.error=''
         with self.con.cursor() as cur:
             try:cur.execute(self.command)
+            except Exception as E:
+                self.con.rollback()
+                self.error=str(E)
+                return 0
+            else:
+                self.con.commit()
+                return 1
+                
+    def dict_insert(self,values:dict,table:str):
+        self.command=f"insert into {table} ({','.join(values.keys())}) values ({','.join(['%s' for i in range(len(values))])})"
+        with self.con.cursor() as cur:
+            try:
+                cur.execute(self.command,tuple(values.values()))
             except Exception as E:
                 self.con.rollback()
                 self.error=str(E)
