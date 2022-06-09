@@ -1,6 +1,7 @@
 import cx_Oracle as ora
 """
 coder: muslih
+SID can be generated using cx_Oracle.makedsn("oracle.sub.example.com", "1521", "ora1")
 """
 
 class oracle_wrap:
