@@ -1,4 +1,5 @@
-from typing import Tuple
+from typing import List, Tuple
+from functools import wraps
 import cx_Oracle 
 from io import StringIO
 import csv
@@ -39,7 +40,36 @@ class oracle_base_wrap:
     def orconnect(connector,**kwargs):
         return cx_Oracle.connect(connector['user'],connector['password'],connector['sid'],**kwargs)
 
-    def upd(self,query,con=None):
+
+    def _with_connection(function):
+                
+        @wraps(function)
+        def inner(self,*args,**kwargs):
+            con = kwargs.pop('con',None)
+            commit = kwargs.pop('commit',None)
+            rollback = kwargs.pop('rollback',None)
+            if con is None:con=self.con
+            if commit is None:commit=True
+            if rollback is None:rollback=True   
+            self.error=''
+            with con.cursor() as cur:
+                try:
+                    data = function(self,*args,**kwargs,cur=cur)
+                except Exception as E:
+                    if rollback:
+                        self.con.rollback()
+                    self.error=str(E)
+                    return 0
+                else:
+                    if commit:
+                        con.commit()
+                    return 1
+
+        return inner
+
+
+
+    def upd(self,query,con=None,commit=True,rollback=True):
         if con is None:con=self.con
         self.query=query
         """ will committ if no error found otherwise rollback itself(no need to commit or rollback externally when using as function)"""
@@ -47,13 +77,33 @@ class oracle_base_wrap:
         with con.cursor() as cur:
             try:cur.execute(self.query)
             except Exception as E:
-                self.con.rollback()
+                if rollback:
+                    self.con.rollback()
                 self.error=str(E)
                 return 0
             else:
-                self.con.commit()
+                if commit:
+                    self.con.commit()
                 return 1
-                
+
+    def insert_many(self,query,dataset:List[Tuple],con=None,commit=True,rollback=True):
+        if not dataset:
+            return 0
+        if con is None:con=self.con
+
+        with con.cursor() as cur:
+            try:
+                cur.executemany(query,dataset)
+            except Exception as E:
+                if rollback:
+                    self.con.rollback()
+                self.error=str(E)
+                return 0
+            else:
+                if commit:
+                    self.con.commit()
+                return 1
+    
     def dict_insert(self,values:dict,table:str,con=None):
         if con is None:con=self.con
         self.query=f"insert into {table} ({','.join(values.keys())}) values ({','.join(['%s' for i in range(len(values))])})"
