@@ -1,7 +1,10 @@
-from typing import Tuple
+from typing import List, Tuple
+from functools import wraps
 import cx_Oracle 
 from io import StringIO
 import csv
+from .dbwrapType import DbWrapBase
+from .decorators import with_connection
 """
 coder: muslih
 SID can be generated using cx_Oracle.makedsn("oracle.sub.example.com", "1521", "ora1")
@@ -10,7 +13,7 @@ version : 2
 update_date :24-06-2022 
 """
 
-class oracle_base_wrap:
+class oracle_base_wrap(DbWrapBase):
 
     def __init__(self,connector,**kwargs):
         self.connector=connector
@@ -39,62 +42,68 @@ class oracle_base_wrap:
     def orconnect(connector,**kwargs):
         return cx_Oracle.connect(connector['user'],connector['password'],connector['sid'],**kwargs)
 
-    def upd(self,query,con=None):
-        if con is None:con=self.con
+
+    @with_connection.update
+    def upd(self,query,cur,con):
         self.query=query
-        """ will committ if no error found otherwise rollback itself(no need to commit or rollback externally when using as function)"""
-        self.error=''
-        with con.cursor() as cur:
-            try:cur.execute(self.query)
-            except Exception as E:
-                self.con.rollback()
-                self.error=str(E)
-                return 0
-            else:
-                self.con.commit()
-                return 1
+        cur.execute(query)
+   
+    @with_connection.update
+    def execute(self,query,cur,con):
+        self.query=query
+        cur.execute(query)
+
+    @with_connection.update
+    def execute_many(self,query,dataset:List[Tuple],cur,con,batcherrors=False):        
+        if not dataset:
+            return 1
+        self.query = query
+        cur.executemany(query,dataset,batcherrors=batcherrors)
+        if batcherrors:
+            return cur.getbatcherrors()
                 
-    def dict_insert(self,values:dict,table:str,con=None):
-        if con is None:con=self.con
-        self.query=f"insert into {table} ({','.join(values.keys())}) values ({','.join(['%s' for i in range(len(values))])})"
-        with con.cursor() as cur:
-            try:
-                cur.execute(self.query,tuple(values.values()))
-            except Exception as E:
-                self.con.rollback()
-                self.error=str(E)
-                return 0
-            else:
-                self.con.commit()
-                return 1
+    
+    def insert_many_list(self,table: str,column: list,dataset:List[Tuple],batcherrors=False):
+        cols  = ','.join(column)
+        params= ','.join([f':{i}' for i in range(0,len(column))])
+        quary = f"insert into {table} ({cols}) values ({params})"
+        errors = self.execute_many(query=quary,dataset=dataset,batcherrors=batcherrors)
+        if batcherrors and errors:
+            return [(dataset[error.offset],error.message) for error in errors ]
 
-
-    def sel(self,query,rtype=None,header=0,con=None):
-        if con is None:con=self.con
+    @with_connection.update
+    def dict_insert(self,values:dict,table:str,cur,con):
+        cols  = ','.join(values.keys())
+        params= ','.join( f':{k}' for k in values.keys())
+        query=f"insert into {table} ({cols}) values ({params})"
+        self.query = query
+        cur.execute(query,values)
+        
+    @with_connection.select
+    def select(self,query,cur,con,rtype=None,header=0):
         self.query=query
         head=None
-        with con.cursor() as cur:
-            try:
-                cur.execute(self.query)
-            except Exception as E:
-                self.error=str(E)
-                return None,0,head
+        try:
+            cur.execute(self.query)
+        except Exception as E:
+            self.error=str(E)
+            return None,0,head
 
-            if rtype=='dict':
-                cur.rowfactory = lambda *args: dict(zip([d[0] for d in cur.description], args))
-                data = cur.fetchall()
-                return data,1,head
-            if header and rtype !='dict' :
-                head=[x[0] for x in cur.description]
-            data=cur.fetchall()
-            if rtype=='list':
-                if len(cur.description)==1:
-                    return [x[0] for x in data],1,head
-                else:
-                    return [list(x) for x in data],1,head
+        if rtype=='dict':
+            cur.rowfactory = lambda *args: dict(zip([d[0] for d in cur.description], args))
+            data = cur.fetchall()
             return data,1,head
+        if header and rtype !='dict' :
+            head=[x[0] for x in cur.description]
+        data=cur.fetchall()
+        if rtype=='list':
+            if len(cur.description)==1:
+                return [x[0] for x in data],1,head
+            else:
+                return [list(x) for x in data],1,head
+        return data,1,head
         
-    def sel_to_IOstring(self,query,fdata:Tuple=None,arraysize:int=500,headcase=str.upper,con=None):
+    def sel_to_IOstring(self,query,cur,con,fdata:Tuple=None,arraysize:int=500,headcase=str.upper):
         """
         Return:
             => StringIO,status,heads
@@ -108,31 +117,29 @@ class oracle_base_wrap:
         For adding new fixed fdata into the csv     
         """
         self.query=query
-        if con is None:con=self.con
+        #if con is None:con=self.con
         head=None
         if fdata is not None and not isinstance(fdata,tuple):
             raise TypeError("data => should be Tuple eg: (4,) or (2,4)")
-
-        with con.cursor() as cur:
-            try:
-                cur.arraysize=arraysize
-                cur.execute(self.query)
-            except Exception as E:
-                self.error=str(E)
-                return None,0,head
+        try:
+            cur.arraysize=arraysize
+            cur.execute(query)
+        except Exception as E:
+            self.error=str(E)
+            return None,0,head
+        else:
+            sio = StringIO()
+            writer = csv.writer(sio)
+            if not fdata:
+                writer.writerows(cur.fetchall())                                  
             else:
-                sio = StringIO()
-                writer = csv.writer(sio)
-                if not fdata:
-                    writer.writerows(cur.fetchall())                                  
-                else:
-                    #print([(*fdata,*row) for row in cur])
-                    [writer.writerows([(*fdata,*row)]) for row in cur if row ]    
-                sio.count = cur.rowcount
-                sio.len = sio.tell()
-                sio.seek(0)
-                return sio,1,[headcase(x[0]) for x in cur.description]   
-        return None,0,None
+                #print([(*fdata,*row) for row in cur])
+                [writer.writerows([(*fdata,*row)]) for row in cur if row ]    
+            sio.count = cur.rowcount
+            sio.len = sio.tell()
+            sio.seek(0)
+            return sio,1,[headcase(x[0]) for x in cur.description]   
+        
 
 
 class oracle_wrap(oracle_base_wrap):
