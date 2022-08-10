@@ -1,6 +1,6 @@
 from typing import List, Tuple
 from functools import wraps
-import cx_Oracle 
+import cx_Oracle
 from io import StringIO
 import csv
 from .dbwrapType import DbWrapBase
@@ -10,7 +10,7 @@ coder: muslih
 SID can be generated using cx_Oracle.makedsn("oracle.sub.example.com", "1521", "ora1")
 location: https://raw.githubusercontent.com/muslih-DIY/Python_dev/master/module/cx_oracle_wrapper/or_wraper.py
 version : 2
-update_date :24-06-2022 
+update_date :24-06-2022
 """
 
 class oracle_base_wrap(DbWrapBase):
@@ -24,11 +24,13 @@ class oracle_base_wrap(DbWrapBase):
 
     def close(self):
         self.con.close()
+        self.con=None
+
 
     def is_connected(self):
         if self.con is None:return 0
-  
-    
+
+
     def re_connect_if_not(self):
         pass
 
@@ -47,29 +49,44 @@ class oracle_base_wrap(DbWrapBase):
     def upd(self,query,cur,con):
         self.query=query
         cur.execute(query)
-   
+
     @with_connection.update
     def execute(self,query,cur,con):
         self.query=query
         cur.execute(query)
 
     @with_connection.update
-    def execute_many(self,query,dataset:List[Tuple],cur,con,batcherrors=False):        
+    def execute_many(self,query,dataset:List[Tuple],cur,con,batcherrors=False):
         if not dataset:
             return 1
         self.query = query
         cur.executemany(query,dataset,batcherrors=batcherrors)
         if batcherrors:
             return cur.getbatcherrors()
-                
-    
+
+
     def insert_many_list(self,table: str,column: list,dataset:List[Tuple],batcherrors=False):
         cols  = ','.join(column)
         params= ','.join([f':{i}' for i in range(0,len(column))])
         quary = f"insert into {table} ({cols}) values ({params})"
-        errors = self.execute_many(query=quary,dataset=dataset,batcherrors=batcherrors)
-        if batcherrors and errors:
-            return [(dataset[error.offset],error.message) for error in errors ]
+        start_pos = 0
+        batch_size = 10000
+        errors = []
+        while start_pos < len(dataset):
+            data = dataset[start_pos:start_pos + batch_size]
+            start_pos += batch_size
+            error = self.execute_many(query=quary,dataset=data,batcherrors=batcherrors)
+
+            if batcherrors:
+                if error ==0:
+                    print(self.error)
+                    raise
+                [errors.append((data[er.offset],er.message)) for er in error ]
+                continue
+            if error == 0 :return error
+        if batcherrors:
+            return errors
+        return 1
 
     @with_connection.update
     def dict_insert(self,values:dict,table:str,cur,con):
@@ -78,7 +95,7 @@ class oracle_base_wrap(DbWrapBase):
         query=f"insert into {table} ({cols}) values ({params})"
         self.query = query
         cur.execute(query,values)
-        
+
     @with_connection.select
     def select(self,query,cur,con,rtype=None,header=0):
         self.query=query
@@ -102,19 +119,19 @@ class oracle_base_wrap(DbWrapBase):
             else:
                 return [list(x) for x in data],1,head
         return data,1,head
-        
+
     def sel_to_IOstring(self,query,cur,con,fdata:Tuple=None,arraysize:int=500,headcase=str.upper):
         """
         Return:
             => StringIO,status,heads
 
-        headcase  
+        headcase
         ----
             :   str.lower
             :   str.upper
         ---
         data:list
-        For adding new fixed fdata into the csv     
+        For adding new fixed fdata into the csv
         """
         self.query=query
         #if con is None:con=self.con
@@ -131,15 +148,15 @@ class oracle_base_wrap(DbWrapBase):
             sio = StringIO()
             writer = csv.writer(sio)
             if not fdata:
-                writer.writerows(cur.fetchall())                                  
+                writer.writerows(cur.fetchall())
             else:
                 #print([(*fdata,*row) for row in cur])
-                [writer.writerows([(*fdata,*row)]) for row in cur if row ]    
+                [writer.writerows([(*fdata,*row)]) for row in cur if row ]
             sio.count = cur.rowcount
             sio.len = sio.tell()
             sio.seek(0)
-            return sio,1,[headcase(x[0]) for x in cur.description]   
-        
+            return sio,1,[headcase(x[0]) for x in cur.description]
+
 
 
 class oracle_wrap(oracle_base_wrap):
@@ -156,13 +173,13 @@ class oracle_thread_pooled(oracle_base_wrap):
         self.threaded = threaded
         self.pool = cx_Oracle.SessionPool(self.connector['user'],self.connector['password'],self.connector['sid'], min=self.min,
                              max=self.max, increment=self.inc,threaded =self.threaded, getmode = cx_Oracle.SPOOL_ATTRVAL_WAIT)
-        
+
     def close(self):
         self.pool.close()
 
     def is_connected(self):
         pass
-      
+
     def re_connect_if_not(self):
         pass
 
