@@ -1,19 +1,23 @@
-from ast import Index
-from ivrs_interface.contrib.dbs import pg_wraper,or_wraper
-from ivrs_interface.dbbackups.config import PgConf,OracleConf
 
+from ivrs_interface.contrib.dbwrapers import pg_wraper,or_wraper
+from ivrs_interface.configmod.ReadConfig import config
 
-pg = pg_wraper.pg2_base_wrap({
-        'user':PgConf.dbuser,
-        'password':PgConf.password,
-        'host':PgConf.host,
-        'database':PgConf.dbname,
-        'port':PgConf.port
-        })
-oracle = or_wraper.oracle_base_wrap({
-        'user':OracleConf.dbuser,
-        'password':OracleConf.password,
-        'sid':OracleConf.sid})
+conf = config()
+
+pgcon = {
+        'user':conf.LocalPGConfig.dbuser,
+        'password':conf.LocalPGConfig.password,
+        'host':conf.LocalPGConfig.host,
+        'database':conf.LocalPGConfig.dbname,
+        'port':conf.LocalPGConfig.port}
+
+orcon = {
+        'user':conf.OracleConfig.dbuser,
+        'password':conf.OracleConfig.password,
+        'sid':conf.OracleConfig.sid}        
+
+pg = pg_wraper.pg2_base_wrap(pgcon)
+oracle = or_wraper.oracle_base_wrap(orcon)
 
 pg.connect()
 # pg.insert("insert into api_logs values(now(),'tester')")

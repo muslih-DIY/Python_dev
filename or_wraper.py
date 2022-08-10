@@ -24,6 +24,7 @@ class oracle_base_wrap(DbWrapBase):
 
     def close(self):
         self.con.close()
+        self.con = None
 
     def is_connected(self):
         if self.con is None:return 0
