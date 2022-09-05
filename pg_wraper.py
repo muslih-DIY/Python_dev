@@ -15,7 +15,7 @@ update_date :03-08-2022
 """
 
 class pg2_base_wrap(DbWrapBase):
-    def __init__(self,connector,**kwargs):
+    def __init__(self,connector: dict,**kwargs):
         self.connector=connector
         self.keyattr=kwargs
         self.con=None
@@ -42,7 +42,7 @@ class pg2_base_wrap(DbWrapBase):
 
 
     @staticmethod
-    def pgconnect(pgconfig,**kwargs):
+    def pgconnect(pgconfig:dict,**kwargs):
         return psycopg2.connect(
             user=pgconfig['user'],
             password=pgconfig['password'],
@@ -163,12 +163,12 @@ class pg2_base_wrap(DbWrapBase):
         return data,1,head
 
 class pg2_wrap(pg2_base_wrap):
-    def __init__(self, connector,**kwargs):
+    def __init__(self, connector:dict,**kwargs):
         super().__init__(connector,**kwargs)
         self.connect()
 
 class pg2_thread_pooled(pg2_base_wrap):
-    def  __init__(self, connector,min=1,max=3,**kwargs):
+    def  __init__(self, connector:dict,min=1,max=3,**kwargs):
         super().__init__(connector, **kwargs)
         self.min = min
         self.max = max
