@@ -3,9 +3,8 @@ import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 from contextlib import contextmanager
 import time
-from .decorators import with_connection
 from psycopg2.extras import execute_values
-from .dbwrapType import DbWrapBase
+from functools import wraps
 
 """
 coder: muslih
@@ -13,8 +12,50 @@ location:https://raw.githubusercontent.com/muslih-DIY/Python_dev/master/module/p
 version : 2
 update_date :03-08-2022
 """
+class with_connection:
+    def select(function):
+        @wraps(function)
+        def inner(self,*args,**kwargs):
+            #print(kwargs)
+            con = kwargs.pop('con',self.con)
+            kwargs['con']=con
+            #print(self.con)
+            #print(con)
+            with con.cursor() as cur:
+                kwargs['cur']=cur
+                try:
+                    data = function(self,*args,**kwargs)
+                except Exception as E:
+                    self.error=str(E)
+                    return 0
+                else:
+                    return data
+        return inner
 
-class pg2_base_wrap(DbWrapBase):
+    def update(function):
+        @wraps(function)
+        def inner(self,*args,**kwargs):
+            con = kwargs.pop('con',self.con)
+            commit = kwargs.pop('commit',True)
+            rollback = kwargs.pop('rollback',True)
+            kwargs['con']=con
+            with con.cursor() as cur:
+                kwargs['cur']=cur
+                try:
+                    data = function(self,*args,**kwargs)
+                except Exception as E:
+                    if rollback:
+                        self.con.rollback()
+                    self.error=str(E)
+                    return 0
+                else:
+                    if commit:
+                        con.commit()
+                    if data is None:return 1
+                    return data
+        return inner
+
+class pg2_base_wrap():
     def __init__(self,connector: dict,**kwargs):
         self.connector=connector
         self.keyattr=kwargs
@@ -212,3 +253,19 @@ class pg2_thread_pooled(pg2_base_wrap):
     def copy_from_csv(self,csvfile,table,header,sep=",",con=None):
         with self.connect() as con:
             return super().copy_from_csv(csvfile=csvfile,table=table,header=header,sep=sep,con=con)
+
+
+class SingletonPg(pg2_base_wrap):
+  
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, 'instance') or not cls.instance:
+          cls.instance = super().__new__(cls) 
+        return cls.instance
+
+    def __init__(self, connector:dict,**kwargs):
+        super().__init__(connector,**kwargs)
+        
+
+
+
+
