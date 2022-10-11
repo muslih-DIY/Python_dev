@@ -12,54 +12,98 @@ location:https://raw.githubusercontent.com/muslih-DIY/Python_dev/master/module/p
 version : 2
 update_date :03-08-2022
 """
+
 class with_connection:
+    def reconnect(function):
+        @wraps(function)
+        def inner(self,*args,**kwargs): 
+            for _ in range(self.retry_max+1):                
+                try:
+                    print('hi')
+                    return function(self,*args,**kwargs)
+                except psycopg2.OperationalError:
+                    print("except")
+                    if self.retry_max != 0 :
+                        self.reconnect()
+                        continue
+                    raise
+        inner._inner = function
+        return inner
     def select(function):
+        
         @wraps(function)
         def inner(self,*args,**kwargs):
             #print(kwargs)
+            
             con = kwargs.pop('con',self.con)
             kwargs['con']=con
             #print(self.con)
             #print(con)
+            if con is None: raise psycopg2.InterfaceError                   
             with con.cursor() as cur:
                 kwargs['cur']=cur
                 try:
+                    print('hi',function)
                     data = function(self,*args,**kwargs)
+                except psycopg2.InterfaceError :
+                    raise  psycopg2.OperationalError   
+                except psycopg2.OperationalError:
+                    raise  psycopg2.OperationalError                     
                 except Exception as E:
                     self.error=str(E)
                     return 0
                 else:
                     return data
+        inner._inner = function
         return inner
 
     def update(function):
         @wraps(function)
         def inner(self,*args,**kwargs):
+            
             con = kwargs.pop('con',self.con)
             commit = kwargs.pop('commit',True)
             rollback = kwargs.pop('rollback',True)
             kwargs['con']=con
-            with con.cursor() as cur:
-                kwargs['cur']=cur
-                try:
-                    data = function(self,*args,**kwargs)
-                except Exception as E:
-                    if rollback:
-                        self.con.rollback()
-                    self.error=str(E)
-                    return 0
-                else:
-                    if commit:
-                        con.commit()
-                    if data is None:return 1
-                    return data
+            if con is None: raise psycopg2.InterfaceError
+            for _ in range(self.retry_max+1):
+                try:           
+                    with con.cursor() as cur:
+                        kwargs['cur']=cur
+                        try:
+                            data = function(self,*args,**kwargs)
+                        except psycopg2.InterfaceError :
+                            raise  psycopg2.OperationalError     
+                        except psycopg2.OperationalError:
+                            raise  psycopg2.OperationalError                                 
+                        except Exception as E:
+                            if rollback:
+                                self.con.rollback()
+                            self.error=str(E)
+                            return 0
+                        else:
+                            if commit:
+                                con.commit()
+                            if data is None:return 1
+                            return data
+                except  psycopg2.OperationalError:
+                    
+                    if self.retry_max != 0 :
+                        self.reconnect()
+                        continue
+                    raise        
+        inner._inner = function
         return inner
 
 class pg2_base_wrap():
+    con: psycopg2.connect =None
     def __init__(self,connector: dict,**kwargs):
+        """
+        retry_max : number of times need to retry if the system got disconnected
+        """
         self.connector=connector
-        self.keyattr=kwargs
-        self.con=None
+        self.retry_max = kwargs.pop('retry_max',0)
+        self.keyattr=kwargs        
         self.query=''
         self.error=''
         
@@ -70,8 +114,15 @@ class pg2_base_wrap():
 
     def is_connected(self):
         if self.con is None:return 0
-        return not self.con.closed  
-    
+        return not self.con.closed 
+
+    def reconnect(self):
+        try:
+            self.close()
+        except:pass
+        self.con = None
+        return self.connect()
+
     def re_connect_if_not(self):
         if self.con.closed:
             time.sleep(2)
@@ -155,6 +206,7 @@ class pg2_base_wrap():
     #             con.commit()
     #             return 1
 
+    @with_connection.reconnect
     @with_connection.select
     def select(self,query,cur,con,rtype=None,header=0):
         query=f"select json_agg(t) from ({query}) t" if rtype=='json' else query
