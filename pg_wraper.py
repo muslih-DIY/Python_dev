@@ -17,13 +17,12 @@ class with_connection:
     def reconnect(function):
         @wraps(function)
         def inner(self,*args,**kwargs): 
-            for _ in range(self.retry_max+1):                
+            for i in range(self.retry_max+1):                
                 try:
-                    print('hi')
                     return function(self,*args,**kwargs)
                 except psycopg2.OperationalError:
-                    print("except")
                     if self.retry_max != 0 :
+                        time.sleep((i+1)*self.retry_step)
                         self.reconnect()
                         continue
                     raise
@@ -33,17 +32,13 @@ class with_connection:
         
         @wraps(function)
         def inner(self,*args,**kwargs):
-            #print(kwargs)
-            
             con = kwargs.pop('con',self.con)
             kwargs['con']=con
-            #print(self.con)
-            #print(con)
+
             if con is None: raise psycopg2.InterfaceError                   
             with con.cursor() as cur:
                 kwargs['cur']=cur
                 try:
-                    print('hi',function)
                     data = function(self,*args,**kwargs)
                 except psycopg2.InterfaceError :
                     raise  psycopg2.OperationalError   
@@ -66,32 +61,25 @@ class with_connection:
             rollback = kwargs.pop('rollback',True)
             kwargs['con']=con
             if con is None: raise psycopg2.InterfaceError
-            for _ in range(self.retry_max+1):
-                try:           
-                    with con.cursor() as cur:
-                        kwargs['cur']=cur
-                        try:
-                            data = function(self,*args,**kwargs)
-                        except psycopg2.InterfaceError :
-                            raise  psycopg2.OperationalError     
-                        except psycopg2.OperationalError:
-                            raise  psycopg2.OperationalError                                 
-                        except Exception as E:
-                            if rollback:
-                                self.con.rollback()
-                            self.error=str(E)
-                            return 0
-                        else:
-                            if commit:
-                                con.commit()
-                            if data is None:return 1
-                            return data
-                except  psycopg2.OperationalError:
-                    
-                    if self.retry_max != 0 :
-                        self.reconnect()
-                        continue
-                    raise        
+  
+            with con.cursor() as cur:
+                kwargs['cur']=cur
+                try:
+                    data = function(self,*args,**kwargs)
+                except psycopg2.InterfaceError :
+                    raise  psycopg2.OperationalError     
+                except psycopg2.OperationalError:
+                    raise  psycopg2.OperationalError                                 
+                except Exception as E:
+                    if rollback:
+                        self.con.rollback()
+                    self.error=str(E)
+                    return 0
+                else:
+                    if commit:
+                        con.commit()
+                    if data is None:return 1
+                    return data
         inner._inner = function
         return inner
 
@@ -103,6 +91,7 @@ class pg2_base_wrap():
         """
         self.connector=connector
         self.retry_max = kwargs.pop('retry_max',0)
+        self.retry_step = kwargs.pop('retry_step',5)
         self.keyattr=kwargs        
         self.query=''
         self.error=''
@@ -308,13 +297,15 @@ class pg2_thread_pooled(pg2_base_wrap):
 
 
 class SingletonPg(pg2_base_wrap):
-  
+    instances:dict = {}
     def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, 'instance') or not cls.instance:
-          cls.instance = super().__new__(cls) 
-        return cls.instance
+        name = kwargs.pop('name','default')
+        if  not name in cls.instances.keys():
+          cls.instances[name] = super().__new__(cls) 
+        return cls.instances[name]
 
     def __init__(self, connector:dict,**kwargs):
+        kwargs.pop('name','default')
         super().__init__(connector,**kwargs)
         
 
