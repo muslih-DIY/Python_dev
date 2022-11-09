@@ -8,7 +8,7 @@ hellotest.txt
 
 # C extensions
 *.so
-
+.pytest_cache
 # Distribution / packaging
 .Python
 build/
