@@ -3,8 +3,7 @@ from functools import wraps
 import cx_Oracle
 from io import StringIO
 import csv
-from .dbwrapType import DbWrapBase
-from .decorators import with_connection
+
 """
 coder: muslih
 SID can be generated using cx_Oracle.makedsn("oracle.sub.example.com", "1521", "ora1")
@@ -12,8 +11,54 @@ location: https://raw.githubusercontent.com/muslih-DIY/Python_dev/master/module/
 version : 2
 update_date :24-06-2022
 """
+from functools import wraps
 
-class oracle_base_wrap(DbWrapBase):
+class with_connection:
+    def select(function):
+        @wraps(function)
+        def inner(self,*args,**kwargs):
+            #print(kwargs)
+            con = kwargs.pop('con',self.con)
+            kwargs['con']=con
+            #print(self.con)
+            #print(con)
+            with con.cursor() as cur:
+                kwargs['cur']=cur
+                try:
+                    data = function(self,*args,**kwargs)
+                except Exception as E:
+                    self.error=str(E)
+                    return 0
+                else:
+                    return data
+        return inner
+
+    def update(function):
+        @wraps(function)
+        def inner(self,*args,**kwargs):
+            con = kwargs.pop('con',self.con)
+            commit = kwargs.pop('commit',True)
+            rollback = kwargs.pop('rollback',True)
+            kwargs['con']=con
+            with con.cursor() as cur:
+                kwargs['cur']=cur
+                try:
+                    data = function(self,*args,**kwargs)
+                except Exception as E:
+                    if rollback:
+                        self.con.rollback()
+                    self.error=str(E)
+                    return 0
+                else:
+                    if commit:
+                        con.commit()
+                    if data is None:return 1
+                    return data
+        return inner
+
+
+
+class oracle_base_wrap():
 
     def __init__(self,connector,**kwargs):
         self.connector=connector

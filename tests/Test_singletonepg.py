@@ -1,9 +1,9 @@
-from pg_wraper import SingletonPg,pg2_base_wrap,with_connection
-import pg_wraper
 import psycopg2
 import os,time
 import pytest
 from functools import wraps
+from src.pg_wraper import SingletonPg,pg2_base_wrap,with_connection
+from src import pg_wraper
 
 env_postgresdb_conf_mapper:dict = {
                         'database':'database' ,
@@ -12,9 +12,11 @@ env_postgresdb_conf_mapper:dict = {
                         'password':'dbpassword',
                         'port':'dbport' }
 
+
 pgconf_env :dict = {}
 for key,var in env_postgresdb_conf_mapper.items():
     if os.environ.get(var,None):pgconf_env[key]=os.environ.get(var,None)
+
 
 def Mockreconnect_Deco(function):
     """
