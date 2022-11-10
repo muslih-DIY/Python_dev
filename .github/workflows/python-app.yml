@@ -5,9 +5,9 @@ name: Python application
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "3-file-TDD-reconnection-refactor" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "3-file-TDD-reconnection-refactor" ]
 
 permissions:
   contents: read

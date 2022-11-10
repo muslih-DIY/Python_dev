@@ -85,45 +85,54 @@ class with_connection:
 
 class pg2_base_wrap():
     con: psycopg2.connect =None
-    def __init__(self,connector: dict,**kwargs):
+
+    def __init__(self,connector: dict,*args,**kwargs):
         """
         retry_max : number of times need to retry if the system got disconnected
         """
         self.connector=connector
         self.retry_max = kwargs.pop('retry_max',0)
         self.retry_step = kwargs.pop('retry_step',5)
-        self.keyattr=kwargs        
+        self.keyattr=kwargs
         self.query=''
         self.error=''
-        
 
     def close(self):
+        'close and set con as None'
         self.con.close()
         self.con = None
 
     def is_connected(self):
-        if self.con is None:return 0
-        return not self.con.closed 
+        'return connextion status'
+        if self.con is None:
+            return 0
+        return not self.con.closed
 
     def reconnect(self):
-        try:
-            self.close()
-        except:pass
-        self.con = None
+        'reconnect after ensuring close'
+        if self.con:
+            try:
+                self.close()
+            except psycopg2.InterfaceError:
+                self.con = None
+
         return self.connect()
 
     def re_connect_if_not(self):
-        if self.con.closed:
-            time.sleep(2)
-            self.con = self.pgconnect(self.connector)
+        'rconnect only if closed'
+        time.sleep(2)
+        return self.connect()
+
     def connect(self):
-        if self.con is None or self.con.closed:
+        'connect to database'
+        if not self.is_connected():
             self.con = self.pgconnect(self.connector,**self.keyattr)
         return 1
 
 
     @staticmethod
-    def pgconnect(pgconfig:dict,**kwargs):
+    def pgconnect(pgconfig:dict,**kwargs)-> str :
+        'static method to connect to the database'
         return psycopg2.connect(
             user=pgconfig['user'],
             password=pgconfig['password'],
@@ -132,7 +141,9 @@ class pg2_base_wrap():
             port=pgconfig['port'],**kwargs)
 
     def copy_from_csv(self,csvfile,table,header,sep=",",con=None):
-        if con is None:con=self.con
+        "copy from csv or file like object"
+        if con is None:
+            con=self.con
         with con.cursor() as cur:
             try:
                 cur.copy_from(
@@ -140,9 +151,9 @@ class pg2_base_wrap():
                     table=table,
                     columns=header,
                     sep=sep)
-            except Exception as E:
+            except Exception as error:
                 con.rollback()
-                self.error=str(E)
+                self.error=str(error)
                 return 0
             else:
                 con.commit()
@@ -197,7 +208,8 @@ class pg2_base_wrap():
 
     @with_connection.reconnect
     @with_connection.select
-    def select(self,query,cur,con,rtype=None,header=0):
+    def select(self,query,cur=None,con=None,rtype=None,header=0):
+        "con,cur are expected to be passed from decorators"
         query=f"select json_agg(t) from ({query}) t" if rtype=='json' else query
         self.query = query
         head=None
@@ -297,16 +309,17 @@ class pg2_thread_pooled(pg2_base_wrap):
 
 
 class SingletonPg(pg2_base_wrap):
+    "It is a singletone class return the same connection always"
     instances:dict = {}
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls,*args,**kwargs):
         name = kwargs.pop('name','default')
-        if  not name in cls.instances.keys():
-          cls.instances[name] = super().__new__(cls) 
+        if  not name in cls.instances:
+            cls.instances[name] = super().__new__(cls)
         return cls.instances[name]
 
-    def __init__(self, connector:dict,**kwargs):
+    def __init__(self, connector:dict,*args,**kwargs):
         kwargs.pop('name','default')
-        super().__init__(connector,**kwargs)
+        super().__init__(connector,*args,**kwargs)
         
 
 
