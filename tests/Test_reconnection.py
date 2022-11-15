@@ -37,11 +37,11 @@ def mock_reconnect_decorator(function):
 
          
 
-@pytest.mark.skip
+
 def reconnecting_test(monkeypatch,con_str):
     """Reconnection testing of OperationalError"""
 
-    original_select = pg_wraper.pg2_base_wrap.select   
+    original_select = pg_wraper.pg2_base_wrap.select
 
     @mock_reconnect_decorator
     @with_connection.select
@@ -52,10 +52,11 @@ def reconnecting_test(monkeypatch,con_str):
     def mockreconnect(self,*args,**kwargs):
         "moking reconnection function which change the function"
         print(f"Reconnecting {args[0]}")
-        if args[0]<1:return None
+        if args[0]<1:
+            return None
         monkeypatch.setattr(pg2_base_wrap,'select',original_select)
         print("Connected")
-        return original_select._inner
+        return original_select.inner
 
 
     monkeypatch.setattr(pg2_base_wrap,'reconnect',mockreconnect)
@@ -65,3 +66,31 @@ def reconnecting_test(monkeypatch,con_str):
     pg2_base_wrap.connect(pgcon)
     assert pg2_base_wrap.select(pgcon,"select 1")
     assert pg2_base_wrap.select(pgcon,"select * from cdr limit 2")
+
+
+
+@pytest.mark.skip
+def realtime_reconnection_test(con_str):
+    """"_summary_"
+    This should be done i realtime.
+    This will connect to the actual database.and do select queries
+    while the fetch should stop the database when some prompts come.
+    Again restart the database after some time accoring to the number of retry and duration between retry
+
+    """
+    pgobj = pg2_base_wrap(con_str,retry_max=4,retry_step=3)
+
+    pgobj.connect()
+
+    print(pgobj.select('select now()'))
+
+    input("please enter after stoping postgres")
+    try:
+        print(pgobj.select('select now()'))
+    except:
+        pass
+
+    print(pgobj.select('select now()'))
+    
+    print("Number of attempt : ",pgobj.attempt)
+    print("error : ",pgobj.error)

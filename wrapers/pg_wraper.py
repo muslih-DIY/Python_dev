@@ -1,4 +1,4 @@
-from typing import Tuple,List
+from typing import Tuple,List,Callable
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 from contextlib import contextmanager
@@ -10,32 +10,47 @@ from functools import wraps
 coder: muslih
 location:https://raw.githubusercontent.com/muslih-DIY/Python_dev/master/module/psycopg_wraper/pg_wraper.py
 version : 2
-update_date :03-08-2022
+
 """
 
 class with_connection:
-    def reconnect(function):
+    def reconnect(function:Callable):
+        """
+        reconnection
+            ------------
+            controlling parameters are
+            self.retry_max  : number of retry
+            self.retry_step : duration increasing step.
+        """
+
         @wraps(function)
-        def inner(self,*args,**kwargs): 
-            for i in range(self.retry_max+1):                
-                try:
-                    return function(self,*args,**kwargs)
-                except psycopg2.OperationalError:
-                    if self.retry_max != 0 :
-                        time.sleep((i+1)*self.retry_step)
+        def inner(self,*args,**kwargs):
+            try:
+                return function(self,*args,**kwargs)
+            except (psycopg2.OperationalError ,psycopg2.InterfaceError):
+
+                for i in range(self.retry_max):
+                    time.sleep((i+1)*self.retry_step)
+                    try:
+                        self.attempt = i
+                        print("attempts : ",i)
                         self.reconnect()
+                        return function(self,*args,**kwargs)
+                    except (psycopg2.OperationalError,psycopg2.InterfaceError):
                         continue
-                    raise
-        inner._inner = function
+                raise
+        inner.inner = function
         return inner
+
     def select(function):
-        
+        "select function decorator"
         @wraps(function)
         def inner(self,*args,**kwargs):
             con = kwargs.pop('con',self.con)
             kwargs['con']=con
 
-            if con is None: raise psycopg2.InterfaceError                   
+            if con is None:
+                raise psycopg2.InterfaceError                   
             with con.cursor() as cur:
                 kwargs['cur']=cur
                 try:
@@ -44,12 +59,12 @@ class with_connection:
                     raise  psycopg2.OperationalError   
                 except psycopg2.OperationalError:
                     raise  psycopg2.OperationalError                     
-                except Exception as E:
-                    self.error=str(E)
+                except Exception as error:
+                    self.error=str(error)
                     return 0
                 else:
                     return data
-        inner._inner = function
+        inner.inner = function
         return inner
 
     def update(function):
@@ -66,21 +81,23 @@ class with_connection:
                 kwargs['cur']=cur
                 try:
                     data = function(self,*args,**kwargs)
+                
                 except psycopg2.InterfaceError :
                     raise  psycopg2.OperationalError     
                 except psycopg2.OperationalError:
                     raise  psycopg2.OperationalError                                 
-                except Exception as E:
+                except Exception as ex:
                     if rollback:
                         self.con.rollback()
-                    self.error=str(E)
+                    self.error=str(ex)
                     return 0
                 else:
                     if commit:
                         con.commit()
-                    if data is None:return 1
+                    if data is None:
+                        return 1
                     return data
-        inner._inner = function
+        inner.inner = function
         return inner
 
 class pg2_base_wrap():
@@ -93,6 +110,7 @@ class pg2_base_wrap():
         self.connector=connector
         self.retry_max = kwargs.pop('retry_max',0)
         self.retry_step = kwargs.pop('retry_step',5)
+        self.attempt = None
         self.keyattr=kwargs
         self.query=''
         self.error=''
@@ -113,7 +131,7 @@ class pg2_base_wrap():
         if self.con:
             try:
                 self.close()
-            except psycopg2.InterfaceError:
+            except psycopg2.InterfaceError :
                 self.con = None
 
         return self.connect()
@@ -140,52 +158,57 @@ class pg2_base_wrap():
             database=pgconfig['database'],
             port=pgconfig['port'],**kwargs)
 
-    def copy_from_csv(self,csvfile,table,header,sep=",",con=None):
+    @with_connection.reconnect
+    @with_connection.update
+    def copy_from_csv(self,csvfile,table,header,sep=",",cur=None,con=None):
         "copy from csv or file like object"
-        if con is None:
-            con=self.con
-        with con.cursor() as cur:
-            try:
-                cur.copy_from(
-                    file=csvfile,
-                    table=table,
-                    columns=header,
-                    sep=sep)
-            except Exception as error:
-                con.rollback()
-                self.error=str(error)
-                return 0
-            else:
-                con.commit()
-                return 1
-    
+        # if con is None:
+        #     con=self.con
+        # with con.cursor() as cur:
+        #     try
+        cur.copy_from(
+            file=csvfile,
+            table=table,
+            columns=header,
+            sep=sep)
+            # except Exception as error:
+            #     con.rollback()
+            #     self.error=str(error)
+            #     return 0
+            # else:
+            #     con.commit()
+            #     return 1
 
-        
+    @with_connection.reconnect
     @with_connection.update
     def dict_insert(self,values:dict,table:str,cur,con):
+
         query=f"insert into {table} ({','.join(values.keys())}) values ({','.join(['%s' for i in range(len(values))])})"
         self.query = query
         cur.execute(query,tuple(values.values()))
         return 1
         
+    @with_connection.reconnect
     @with_connection.update
     def execute(self,query,cur,con):
         self.query=query
         cur.execute(query)
         return 1
-
+    @with_connection.reconnect
     @with_connection.update
     def upd(self,query,cur,con):
         self.query=query
         cur.execute(query)
         return 1
         
+    @with_connection.reconnect
     @with_connection.update
     def execute_many(self,query,dataset,cur,con):
         self.query=query
         cur.executemany(query,dataset)
         return 1
 
+    @with_connection.reconnect
     @with_connection.update
     def update_many(self,query: str,dataset:List[Tuple],cur,con):
         self.query=query
@@ -213,11 +236,9 @@ class pg2_base_wrap():
         query=f"select json_agg(t) from ({query}) t" if rtype=='json' else query
         self.query = query
         head=None
-        try:
-            cur.execute(query)
-        except Exception as E:
-            self.error=str(E)
-            return None,0,head
+
+        cur.execute(query)
+
         if header or rtype=='dict':
             head=[x[0] for x in cur.description]
         
@@ -228,12 +249,11 @@ class pg2_base_wrap():
                 return [x[0] for x in data],1,head
             else:
                 return [list(x) for x in data],1,head
-        if rtype=='dict': 
-
-                return [{k:v for k,v in zip(head,value)} for value in data],1
+        if rtype=='dict':
+            return [{k:v for k,v in zip(head,value)} for value in data],1
         return data,1,head
 
-    
+    @with_connection.reconnect
     @with_connection.select
     def sel(self,query,cur,con,rtype=None,header=0):
 
@@ -242,8 +262,8 @@ class pg2_base_wrap():
         head=None
         try:
             cur.execute(query)
-        except Exception as E:
-            self.error=str(E)
+        except Exception as error:
+            self.error=str(error)
             return None,0,head
         if header and rtype !='dict' :
             head=[x[0] for x in cur.description]
@@ -253,7 +273,8 @@ class pg2_base_wrap():
                 return [x[0] for x in data],1,head
             else:
                 return [list(x) for x in data],1,head
-        if rtype=='dict': return data[0][0] or [],1,head
+        if rtype=='dict':
+            return data[0][0] or [],1,head
         return data,1,head
 
 class pg2_wrap(pg2_base_wrap):
@@ -290,17 +311,17 @@ class pg2_thread_pooled(pg2_base_wrap):
         finally:
             self.pool.putconn(conn) 
 
-    def sel(self,query,rtype=None,header=0,con=None):                
+    def sel(self,query,rtype=None,header=0,cur=None,con=None):
         with self.connect() as con:
-            return super().sel(query,rtype=rtype,header=header,con=con)
+            return super().sel(query,rtype=rtype,header=header,cur=cur,con=con)
 
-    def upd(self,query,con=None):
+    def upd(self,query,cur=None,con=None):
         with self.connect() as con:
-            return  super().upd(query,con=con)     
+            return  super().upd(query,cur=cur,con=con)
          
-    def dict_insert(self,values:dict,table:str,con=None):
+    def dict_insert(self,values:dict,table:str,cur=None,con=None):
         with self.connect() as con:
-            return super().dict_insert(values=values,table=table,con=con)
+            return super().dict_insert(values=values,table=table,cur=cur,con=con)
 
 
     def copy_from_csv(self,csvfile,table,header,sep=",",con=None):
@@ -320,8 +341,3 @@ class SingletonPg(pg2_base_wrap):
     def __init__(self, connector:dict,*args,**kwargs):
         kwargs.pop('name','default')
         super().__init__(connector,*args,**kwargs)
-        
-
-
-
-
