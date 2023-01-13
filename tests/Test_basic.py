@@ -1,5 +1,5 @@
 from psycopg2 import OperationalError,InterfaceError
-from wrapers.pg_wraper import pg2_base_wrap
+from dbwraper.pg_wraper import pg2_base_wrap
 import pytest
 
 def basic_connection_test(con_str):

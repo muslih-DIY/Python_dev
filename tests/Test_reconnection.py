@@ -2,8 +2,8 @@ from functools import wraps
 import time
 import psycopg2
 import pytest
-from wrapers.pg_wraper import pg2_base_wrap,with_connection
-from wrapers import pg_wraper
+from dbwraper.pg_wraper import pg2_base_wrap,with_connection
+from dbwraper import pg_wraper
 
 """_summary_
     This test actually mock the disconnection during the operation
