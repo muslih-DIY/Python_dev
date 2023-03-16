@@ -164,8 +164,9 @@ class oracle_base_wrap():
             else:
                 return [list(x) for x in data],1,head
         return data,1,head
-
-    def sel_to_IOstring(self,query,cur,con,fdata:Tuple=None,arraysize:int=500,headcase=str.upper):
+    
+    @with_connection.select
+    def sel_to_IOstring(self,query,cur,con,fdata:Tuple=None,arraysize:int=500,headcase=str.upper,csv_header:bool=False):
         """
         Return:
             => StringIO,status,heads
@@ -190,8 +191,11 @@ class oracle_base_wrap():
             self.error=str(E)
             return None,0,head
         else:
+            head = [headcase(x[0]) for x in cur.description]
             sio = StringIO()
             writer = csv.writer(sio)
+            if csv_header:
+                writer.writerows([head])            
             if not fdata:
                 writer.writerows(cur.fetchall())
             else:
@@ -200,7 +204,7 @@ class oracle_base_wrap():
             sio.count = cur.rowcount
             sio.len = sio.tell()
             sio.seek(0)
-            return sio,1,[headcase(x[0]) for x in cur.description]
+            return sio,1,head
 
 
 
