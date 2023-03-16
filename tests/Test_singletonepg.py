@@ -1,5 +1,5 @@
 import time
-from wrapers.pg_wraper import SingletonPg
+from dbwraper.pg_wraper import SingletonPg
 import concurrent.futures
 
 
