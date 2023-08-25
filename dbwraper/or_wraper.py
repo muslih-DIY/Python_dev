@@ -3,6 +3,7 @@ from functools import wraps
 import cx_Oracle
 from io import StringIO
 import csv
+import traceback
 
 """
 coder: muslih
@@ -28,6 +29,7 @@ class with_connection:
                     data = function(self,*args,**kwargs)
                 except Exception as E:
                     self.error=str(E)
+                    self.traceback_info  = traceback.format_exc()
                     return 0
                 else:
                     return data
@@ -48,6 +50,7 @@ class with_connection:
                     if rollback:
                         self.con.rollback()
                     self.error=str(E)
+                    self.traceback_info  = traceback.format_exc()
                     return 0
                 else:
                     if commit:
@@ -66,6 +69,7 @@ class oracle_base_wrap():
         self.con = None
         self.query=''
         self.error=''
+        self.traceback_info = traceback.format_exc()
 
     def close(self):
         self.con.close()
@@ -101,16 +105,19 @@ class oracle_base_wrap():
         cur.execute(query)
 
     @with_connection.update
-    def execute_many(self,query,dataset:List[Tuple],cur,con,batcherrors=False):
+    def execute_many(self,query,dataset:List[Tuple],cur,con,batcherrors=False,dtype=None):
+        "dtype is list or dictionary according to dataset"
         if not dataset:
             return 1
+        if dtype:
+            cur.setinputsizes(*dtype)
         self.query = query
         cur.executemany(query,dataset,batcherrors=batcherrors)
         if batcherrors:
             return cur.getbatcherrors()
 
 
-    def insert_many_list(self,table: str,column: list,dataset:List[Tuple],batcherrors=False):
+    def insert_many_list(self,table: str,column: list,dataset:List[Tuple],batcherrors=False,dtype:list=None):
         cols  = ','.join(column)
         params= ','.join([f':{i}' for i in range(0,len(column))])
         quary = f"insert into {table} ({cols}) values ({params})"
@@ -120,12 +127,12 @@ class oracle_base_wrap():
         while start_pos < len(dataset):
             data = dataset[start_pos:start_pos + batch_size]
             start_pos += batch_size
-            error = self.execute_many(query=quary,dataset=data,batcherrors=batcherrors)
-
+            error = self.execute_many(query=quary,dataset=data,batcherrors=batcherrors,dtype=dtype)
+            print(error)
             if batcherrors:
                 if error ==0:
                     print(self.error)
-                    raise
+                    raise Exception(self.traceback_info) 
                 [errors.append((data[er.offset],er.message)) for er in error ]
                 continue
             if error == 0 :return error
